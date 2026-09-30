@@ -1,0 +1,904 @@
+import { useEffect, useMemo, useState } from 'react';
+
+type Theme = 'light' | 'dark';
+type Status = 'Healthy' | 'Warning' | 'Critical' | 'Draft';
+type RecordStatus = 'Active' | 'Pending' | 'Archived' | 'Review';
+type Risk = 'Low' | 'Medium' | 'High';
+
+type EntityRecord = {
+  id: string;
+  company: string;
+  domain: string;
+  owner: string;
+  segment: string;
+  region: string;
+  status: RecordStatus;
+  risk: Risk;
+  tier: 'Enterprise' | 'Business' | 'Growth';
+  spend: number;
+  users: number;
+  uptime: number;
+  policy: string;
+  lastUpdated: string;
+  connectedSystems: number;
+  activeAlerts: number;
+  environment: string;
+};
+
+type ConfigNode = {
+  id: string;
+  name: string;
+  type: string;
+  children?: ConfigNode[];
+};
+
+type Toast = {
+  id: number;
+  message: string;
+  kind: 'success' | 'error' | 'info';
+};
+
+const statuses: RecordStatus[] = ['Active', 'Pending', 'Archived', 'Review'];
+const regions = ['North America', 'EMEA', 'APAC', 'LATAM'];
+const segments = ['Finance', 'Healthcare', 'Manufacturing', 'Retail', 'Logistics'];
+const fakeCompanies = [
+  'Aster Labs',
+  'Northwind Dynamics',
+  'Helio Meridian',
+  'Summit Core',
+  'Northstar Grid',
+  'Juniper Nexus',
+  'Blue Harbor Group',
+  'Veridian Delta',
+  'Monarch One',
+  'Echelon Prime',
+  'Fieldstone Ops',
+  'Pine Rose Works',
+  'Crestline Systems',
+  'Beacon Harbor',
+  'Atlas Harbor',
+  'Vector Frame',
+  'Quantum Harbor',
+  'Anchor Vale',
+  'Harbor Point',
+  'Cobalt Harbor',
+];
+
+const mockMetrics = [
+  { label: 'Monthly recurring', value: '$1.84M', delta: '+14.8%' },
+  { label: 'Active tenants', value: '2,184', delta: '+9.2%' },
+  { label: 'SLA uptime', value: '99.96%', delta: '+0.12%' },
+  { label: 'Escalations', value: '24', delta: '-18.3%' },
+];
+
+const revenueSeries = [42, 58, 51, 75, 72, 88, 90, 103, 116, 110, 134, 148];
+const weeklyOps = [16, 18, 14, 22, 25, 19, 28, 31, 26, 35, 37, 42];
+const adoptionSeries = [65, 70, 68, 81, 78, 88, 86, 92, 95, 96, 97, 99];
+
+const configTree: ConfigNode = {
+  id: 'root',
+  name: 'Global Control Plane',
+  type: 'domain',
+  children: [
+    {
+      id: 'na',
+      name: 'North America',
+      type: 'region',
+      children: [
+        {
+          id: 'na-prod',
+          name: 'Production',
+          type: 'environment',
+          children: [
+            { id: 'auth', name: 'Identity', type: 'service' },
+            { id: 'billing', name: 'Billing', type: 'service' },
+            { id: 'workflows', name: 'Workflow Engine', type: 'service' },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'emea',
+      name: 'EMEA',
+      type: 'region',
+      children: [
+        {
+          id: 'emea-stage',
+          name: 'Staging',
+          type: 'environment',
+          children: [
+            { id: 'reporting', name: 'Reporting', type: 'service' },
+            { id: 'vault', name: 'Secrets Vault', type: 'service' },
+          ],
+        },
+      ],
+    },
+    {
+      id: 'apac',
+      name: 'APAC',
+      type: 'region',
+      children: [
+        {
+          id: 'apac-prod',
+          name: 'Production',
+          type: 'environment',
+          children: [{ id: 'edge', name: 'Edge Gateway', type: 'service' }],
+        },
+      ],
+    },
+  ],
+};
+
+const auditHistory = [
+  { time: 'Today 14:22', actor: 'J. Holloway', action: 'Updated access policy on Customer Portal', type: 'policy' },
+  { time: 'Today 10:30', actor: 'M. Rossi', action: 'Approved dependency chain renewal for CRM integration', type: 'approval' },
+  { time: 'Yesterday 18:05', actor: 'Support Automation', action: 'Reconciled billing discrepancy for MSA-431', type: 'system' },
+  { time: 'Yesterday 11:48', actor: 'C. Liu', action: 'Added user group for Finance operations', type: 'user' },
+  { time: 'Mon 16:12', actor: 'Ops Bot', action: 'Triggered failover plan for EU-East region', type: 'system' },
+];
+
+const dependencyNodes = [
+  { id: 'identity', label: 'Identity', x: 90, y: 120 },
+  { id: 'portal', label: 'Portal', x: 250, y: 80 },
+  { id: 'crm', label: 'CRM', x: 260, y: 220 },
+  { id: 'billing', label: 'Billing', x: 480, y: 140 },
+  { id: 'workflows', label: 'Workflow', x: 470, y: 260 },
+  { id: 'reporting', label: 'Reporting', x: 660, y: 180 },
+];
+
+const dependencyEdges = [
+  ['identity', 'portal'],
+  ['identity', 'billing'],
+  ['portal', 'billing'],
+  ['billing', 'workflows'],
+  ['crm', 'billing'],
+  ['billing', 'reporting'],
+  ['workflows', 'reporting'],
+];
+
+const csvPreview = [
+  { company: 'Northwind Dynamics', domain: 'finance.northwind.com', owner: 'R. Miner', status: 'Active', tier: 'Enterprise' },
+  { company: 'Atlas Harbor', domain: 'ops.atlasharbor.io', owner: 'M. Green', status: 'Review', tier: 'Growth' },
+  { company: 'Aster Labs', domain: 'prod.asterlabs.net', owner: 'S. Patel', status: 'Pending', tier: 'Business' },
+  { company: 'Helio Meridian', domain: 'public.heliomeridian.co', owner: 'D. Shaw', status: 'Active', tier: 'Enterprise' },
+];
+
+const importIssues = [
+  { row: 3, field: 'status', message: 'Status is set to Pending but missing attestation date.' },
+  { row: 6, field: 'domain', message: 'Duplicate domain already present in tenant directory.' },
+];
+
+function generateRecords(): EntityRecord[] {
+  const records: EntityRecord[] = [];
+  for (let i = 0; i < 520; i += 1) {
+    const company = fakeCompanies[i % fakeCompanies.length];
+    const domain = `${company.toLowerCase().replace(/\s+/g, '-')}.${['io', 'cloud', 'corp', 'platform'][i % 4]}`;
+    const status = statuses[i % statuses.length];
+    const region = regions[i % regions.length];
+    const segment = segments[i % segments.length];
+    const riskList: Risk[] = ['Low', 'Medium', 'High'];
+    const tier = ['Enterprise', 'Business', 'Growth'][i % 3] as 'Enterprise' | 'Business' | 'Growth';
+    const owner = ['A. Patel', 'K. Moore', 'J. Rivera', 'A. Chen', 'L. Hughes'][i % 5];
+    records.push({
+      id: `TEN-${String(1000 + i).padStart(5, '0')}`,
+      company: `${company} ${['Group', 'Systems', 'Partners', 'Works', 'Holdings'][i % 5]}`,
+      domain,
+      owner,
+      segment,
+      region,
+      status: status === 'Active' ? 'Active' : (status as RecordStatus),
+      risk: riskList[i % riskList.length],
+      tier,
+      spend: 54000 + i * 1730,
+      users: 420 + i * 17,
+      uptime: 98 + (i % 12) * 0.15,
+      policy: ['Standard', 'Enhanced', 'Regional', 'Executive'][i % 4],
+      lastUpdated: new Date(Date.now() - i * 86400000 * (i % 11)).toLocaleDateString(),
+      connectedSystems: 8 + (i % 18),
+      activeAlerts: i % 7,
+      environment: ['Production', 'Staging', 'Sandbox', 'Hybrid'][i % 4],
+    });
+  }
+  return records;
+}
+
+const allRecords = generateRecords();
+
+function Button({ children, variant = 'primary', onClick, size = 'md', full = false }: {
+  children: React.ReactNode;
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
+  onClick?: () => void;
+  size?: 'sm' | 'md';
+  full?: boolean;
+}) {
+  return (
+    <button className={`button ${variant} ${size} ${full ? 'full' : ''}`} onClick={onClick}>
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info' }) {
+  return <span className={`badge ${tone}`}>{children}</span>;
+}
+
+function Card({ title, subtitle, action, children }: { title?: string; subtitle?: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="card shell">
+      {(title || subtitle || action) && (
+        <div className="card-header">
+          <div>
+            {title && <h3>{title}</h3>}
+            {subtitle && <small>{subtitle}</small>}
+          </div>
+          {action}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
+function App() {
+  const [theme, setTheme] = useState<Theme>('dark');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('All');
+  const [regionFilter, setRegionFilter] = useState('All');
+  const [segmentFilter, setSegmentFilter] = useState('All');
+  const [selectedRecord, setSelectedRecord] = useState<EntityRecord | null>(allRecords[0]);
+  const [selectedRows, setSelectedRows] = useState<string[]>(['TEN-01000', 'TEN-01025']);
+  const [toastList, setToastList] = useState<Toast[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [wizardData, setWizardData] = useState({
+    entity: '',
+    owner: '',
+    region: 'North America',
+    segment: 'Finance',
+    policy: 'Standard',
+  });
+  const [wizardErrors, setWizardErrors] = useState<Record<string, string>>({});
+  const [showImport, setShowImport] = useState(false);
+  const [tableLoading, setTableLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'records' | 'configs' | 'dependencies' | 'audit'>('overview');
+
+  useEffect(() => {
+    const timer = setTimeout(() => setTableLoading(false), 550);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  const pushToast = (message: string, kind: Toast['kind'] = 'success') => {
+    const id = Date.now() + Math.random();
+    setToastList((current) => [...current, { id, message, kind }]);
+    setTimeout(() => {
+      setToastList((current) => current.filter((toast) => toast.id !== id));
+    }, 2600);
+  };
+
+  const filteredRecords = useMemo(() => {
+    return allRecords.filter((record) => {
+      const matchesSearch =
+        record.company.toLowerCase().includes(search.toLowerCase()) ||
+        record.domain.toLowerCase().includes(search.toLowerCase()) ||
+        record.owner.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus = statusFilter === 'All' || record.status === statusFilter;
+      const matchesRegion = regionFilter === 'All' || record.region === regionFilter;
+      const matchesSegment = segmentFilter === 'All' || record.segment === segmentFilter;
+      return matchesSearch && matchesStatus && matchesRegion && matchesSegment;
+    });
+  }, [search, statusFilter, regionFilter, segmentFilter]);
+
+  const totalSpend = filteredRecords.reduce((sum, record) => sum + record.spend, 0);
+  const activeUsers = filteredRecords.reduce((sum, record) => sum + record.users, 0);
+  const avgUptime = filteredRecords.reduce((sum, record) => sum + record.uptime, 0) / filteredRecords.length;
+  const atRisk = filteredRecords.filter((record) => record.risk !== 'Low').length;
+
+  const handleRowSelect = (id: string) => {
+    const item = filteredRecords.find((record) => record.id === id) || allRecords.find((record) => record.id === id);
+    setSelectedRecord(item ?? null);
+  };
+
+  const toggleRow = (id: string) => {
+    setSelectedRows((current) =>
+      current.includes(id) ? current.filter((rowId) => rowId !== id) : [...current, id],
+    );
+  };
+
+  const nextStep = () => {
+    const errors: Record<string, string> = {};
+    if (wizardStep === 1 && !wizardData.entity.trim()) errors.entity = 'Entity name is required.';
+    if (wizardStep === 1 && !wizardData.owner.trim()) errors.owner = 'Owner is required.';
+    if (wizardStep === 2 && !wizardData.policy.trim()) errors.policy = 'Policy is required.';
+    setWizardErrors(errors);
+    if (Object.keys(errors).length === 0) {
+      setWizardStep((step) => Math.min(step + 1, 3));
+    }
+  };
+
+  const handleWizardSubmit = () => {
+    const errors: Record<string, string> = {};
+    if (!wizardData.entity.trim()) errors.entity = 'Entity name is required.';
+    if (!wizardData.owner.trim()) errors.owner = 'Owner is required.';
+    if (!wizardData.policy.trim()) errors.policy = 'Policy is required.';
+    setWizardErrors(errors);
+    if (Object.keys(errors).length === 0) {
+      setWizardOpen(false);
+      setWizardStep(1);
+      setWizardData({ entity: '', owner: '', region: 'North America', segment: 'Finance', policy: 'Standard' });
+      pushToast('Tenant configuration created successfully', 'success');
+    }
+  };
+
+  const renderTree = (node: ConfigNode, depth = 0) => (
+    <div key={node.id} style={{ marginLeft: depth * 18 }} className="tree-node">
+      <div className="tree-row">
+        <span className="tree-bullet" />
+        <strong>{node.name}</strong>
+        <small>{node.type}</small>
+      </div>
+      {node.children?.map((child) => renderTree(child, depth + 1))}
+    </div>
+  );
+
+  const renderDashboard = () => (
+    <>
+      <div className="kpis-grid">
+        {mockMetrics.map((metric) => (
+          <div key={metric.label} className="kpi-card shell">
+            <div className="kpi-head">
+              <span>{metric.label}</span>
+              <Badge tone={metric.delta.startsWith('+') ? 'success' : 'warning'}>{metric.delta}</Badge>
+            </div>
+            <div className="kpi-value">{metric.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="panel-grid">
+        <Card title="Revenue momentum" subtitle="12-month normalized value">
+          <SvgLineChart data={revenueSeries} color="#7c3aed" />
+        </Card>
+        <Card title="Operational throughput" subtitle="Open workflows by week">
+          <SvgBarChart data={weeklyOps} color="#22c55e" />
+        </Card>
+        <Card title="Customer adoption" subtitle="Active workspace coverage">
+          <SvgLineChart data={adoptionSeries} color="#38bdf8" />
+        </Card>
+      </div>
+
+      <div className="bottom-grid">
+        <Card title="Tenant health" subtitle="Risk distribution">
+          <div className="legend-stack">
+            <div className="legend-item"><span className="dot green" /> Healthy <strong>72%</strong></div>
+            <div className="legend-item"><span className="dot amber" /> Warning <strong>21%</strong></div>
+            <div className="legend-item"><span className="dot red" /> Critical <strong>7%</strong></div>
+          </div>
+          <div className="mini-donut">
+            <div className="donut-ring" />
+            <div className="donut-center">84%</div>
+          </div>
+        </Card>
+        <Card title="Operations summary" subtitle="This week">
+          <div className="summary-list">
+            <div><span>Deployments</span><strong>18</strong></div>
+            <div><span>Policy exceptions</span><strong>04</strong></div>
+            <div><span>Pending approvals</span><strong>11</strong></div>
+            <div><span>Escalations closed</span><strong>93%</strong></div>
+          </div>
+        </Card>
+      </div>
+    </>
+  );
+
+  const renderRecords = () => (
+    <div className="records-layout">
+      <div className="table-panel shell">
+        <div className="table-toolbar">
+          <div className="search-wrap">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search company, domain, owner"
+            />
+          </div>
+          <div className="toolbar-actions">
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="All">All status</option>
+              {statuses.map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
+            </select>
+            <select value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)}>
+              <option value="All">All regions</option>
+              {regions.map((region) => (
+                <option key={region} value={region}>{region}</option>
+              ))}
+            </select>
+            <select value={segmentFilter} onChange={(event) => setSegmentFilter(event.target.value)}>
+              <option value="All">All segments</option>
+              {segments.map((segment) => (
+                <option key={segment} value={segment}>{segment}</option>
+              ))}
+            </select>
+            <Button variant="secondary" onClick={() => { setShowImport(true); pushToast('CSV import preview ready', 'info'); }}>
+              Import CSV
+            </Button>
+          </div>
+        </div>
+
+        <div className="bulk-bar">
+          <div className="bulk-left">{selectedRows.length} items selected</div>
+          <div className="bulk-actions">
+            <Button variant="ghost" onClick={() => pushToast('Bulk export queued', 'info')}>Export</Button>
+            <Button variant="secondary" onClick={() => pushToast('Bulk status update queued', 'info')}>Update status</Button>
+            <Button variant="danger" onClick={() => pushToast('Archive request submitted', 'error')}>Archive</Button>
+          </div>
+        </div>
+
+        {tableLoading ? (
+          <div className="skeleton-table">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="skeleton-row" />
+            ))}
+          </div>
+        ) : filteredRecords.length === 0 ? (
+          <div className="empty-state">
+            <div className="empty-icon">◎</div>
+            <h3>No tenants match the current filters</h3>
+            <p>Try clearing one or more filters to widen the record set.</p>
+            <Button variant="secondary" onClick={() => { setSearch(''); setStatusFilter('All'); setRegionFilter('All'); setSegmentFilter('All'); }}>
+              Reset filters
+            </Button>
+          </div>
+        ) : (
+          <div className="data-table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><input type="checkbox" checked={selectedRows.length > 0} onChange={() => setSelectedRows(selectedRows.length ? [] : filteredRecords.slice(0, 10).map((row) => row.id))} /></th>
+                  <th>Tenant</th>
+                  <th>Owner</th>
+                  <th>Region</th>
+                  <th>Status</th>
+                  <th>Risk</th>
+                  <th>Spend</th>
+                  <th>Users</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRecords.slice(0, 120).map((record) => (
+                  <tr key={record.id} className={selectedRecord?.id === record.id ? 'selected' : ''} onClick={() => handleRowSelect(record.id)}>
+                    <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedRows.includes(record.id)} onChange={() => toggleRow(record.id)} /></td>
+                    <td>
+                      <div className="tenant-cell">
+                        <strong>{record.company}</strong>
+                        <span>{record.id}</span>
+                      </div>
+                    </td>
+                    <td>{record.owner}</td>
+                    <td>{record.region}</td>
+                    <td><Badge tone={record.status === 'Active' ? 'success' : record.status === 'Review' ? 'warning' : 'info'}>{record.status}</Badge></td>
+                    <td><Badge tone={record.risk === 'High' ? 'danger' : record.risk === 'Medium' ? 'warning' : 'success'}>{record.risk}</Badge></td>
+                    <td>{formatMoney(record.spend)}</td>
+                    <td>{formatNumber(record.users)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {selectedRecord && (
+        <aside className="detail-panel shell">
+          <div className="detail-header">
+            <div>
+              <p className="eyebrow">Tenant details</p>
+              <h2>{selectedRecord.company}</h2>
+            </div>
+            <Button variant="ghost" onClick={() => setSelectedRecord(null)}>Close</Button>
+          </div>
+
+          <div className="detail-metrics">
+            <div>
+              <small>Domain</small>
+              <strong>{selectedRecord.domain}</strong>
+            </div>
+            <div>
+              <small>Environment</small>
+              <strong>{selectedRecord.environment}</strong>
+            </div>
+            <div>
+              <small>Connected systems</small>
+              <strong>{selectedRecord.connectedSystems}</strong>
+            </div>
+          </div>
+
+          <div className="detail-section">
+            <div className="field-row">
+              <label>Owner</label>
+              <input value={selectedRecord.owner} readOnly />
+            </div>
+            <div className="field-row">
+              <label>Policy</label>
+              <input value={selectedRecord.policy} readOnly />
+            </div>
+            <div className="field-row">
+              <label>Status</label>
+              <select defaultValue={selectedRecord.status}>
+                {statuses.map((status) => (
+                  <option key={status} value={status}>{status}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="side-actions">
+            <Button variant="secondary" onClick={() => pushToast('Changes queued for approval', 'info')}>Save draft</Button>
+            <Button onClick={() => pushToast('Configuration updated', 'success')}>Publish</Button>
+          </div>
+        </aside>
+      )}
+    </div>
+  );
+
+  const renderConfigs = () => (
+    <div className="config-layout">
+      <Card title="Configuration hierarchy" subtitle="Control plane topology">
+        <div className="tree-container">{renderTree(configTree)}</div>
+      </Card>
+      <Card title="Baseline settings" subtitle="Active policy matrix">
+        <div className="config-grid">
+          <div className="config-card">
+            <small>Identity</small>
+            <strong>SCIM + SAML</strong>
+            <Badge tone="success">Healthy</Badge>
+          </div>
+          <div className="config-card">
+            <small>Billing</small>
+            <strong>Usage caps</strong>
+            <Badge tone="warning">Review</Badge>
+          </div>
+          <div className="config-card">
+            <small>Workflow</small>
+            <strong>Retry policy</strong>
+            <Badge tone="info">Managed</Badge>
+          </div>
+          <div className="config-card">
+            <small>Edge</small>
+            <strong>Traffic shaping</strong>
+            <Badge tone="success">Healthy</Badge>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+
+  const renderDependencies = () => (
+    <Card title="Dependency map" subtitle="Inter-service topology and change impact">
+      <div className="dependency-wrap">
+        <svg viewBox="0 0 760 340" className="dependency-svg" role="img" aria-label="Dependency map">
+          {dependencyEdges.map(([from, to]) => {
+            const start = dependencyNodes.find((node) => node.id === from)!;
+            const end = dependencyNodes.find((node) => node.id === to)!;
+            return (
+              <line
+                key={`${from}-${to}`}
+                x1={start.x}
+                y1={start.y}
+                x2={end.x}
+                y2={end.y}
+                stroke="rgba(148, 163, 184, 0.7)"
+                strokeWidth="2"
+              />
+            );
+          })}
+          {dependencyNodes.map((node) => (
+            <g key={node.id}>
+              <circle cx={node.x} cy={node.y} r="36" fill="#0f172a" stroke="#7c3aed" strokeWidth="2" />
+              <text x={node.x} y={node.y + 4} textAnchor="middle" fill="#e2e8f0" fontSize="12">{node.label}</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </Card>
+  );
+
+  const renderAudit = () => (
+    <Card title="Audit history" subtitle="Policy, compliance, and system events">
+      <div className="timeline">
+        {auditHistory.map((event) => (
+          <div key={`${event.time}-${event.action}`} className="timeline-item">
+            <div className="timeline-dot" />
+            <div className="timeline-content">
+              <div className="timeline-topline">
+                <strong>{event.action}</strong>
+                <Badge tone={event.type === 'approval' ? 'success' : event.type === 'system' ? 'info' : 'neutral'}>{event.type}</Badge>
+              </div>
+              <div className="timeline-meta">{event.actor} • {event.time}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+
+  const renderWizard = () => (
+    <div className={`modal-backdrop ${wizardOpen ? 'visible' : ''}`}>
+      <div className="modal-card shell">
+        <div className="modal-header">
+          <div>
+            <p className="eyebrow">Create tenant</p>
+            <h3>New configuration wizard</h3>
+          </div>
+          <button className="close-button" onClick={() => setWizardOpen(false)}>×</button>
+        </div>
+
+        <div className="wizard-steps">
+          <div className={`wizard-step ${wizardStep === 1 ? 'active' : ''}`}><span>1</span> Basics</div>
+          <div className={`wizard-step ${wizardStep === 2 ? 'active' : ''}`}><span>2</span> Controls</div>
+          <div className={`wizard-step ${wizardStep === 3 ? 'active' : ''}`}><span>3</span> Review</div>
+        </div>
+
+        {wizardStep === 1 && (
+          <div className="wizard-form">
+            <div className="field-row">
+              <label>Entity name</label>
+              <input
+                value={wizardData.entity}
+                onChange={(event) => setWizardData((current) => ({ ...current, entity: event.target.value }))}
+                placeholder="e.g. Northwind Labs"
+              />
+              {wizardErrors.entity && <small className="error-text">{wizardErrors.entity}</small>}
+            </div>
+            <div className="field-row">
+              <label>Owner</label>
+              <input
+                value={wizardData.owner}
+                onChange={(event) => setWizardData((current) => ({ ...current, owner: event.target.value }))}
+                placeholder="e.g. A. Patel"
+              />
+              {wizardErrors.owner && <small className="error-text">{wizardErrors.owner}</small>}
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 2 && (
+          <div className="wizard-form">
+            <div className="field-row">
+              <label>Region</label>
+              <select value={wizardData.region} onChange={(event) => setWizardData((current) => ({ ...current, region: event.target.value }))}>
+                {regions.map((region) => <option key={region} value={region}>{region}</option>)}
+              </select>
+            </div>
+            <div className="field-row">
+              <label>Segment</label>
+              <select value={wizardData.segment} onChange={(event) => setWizardData((current) => ({ ...current, segment: event.target.value }))}>
+                {segments.map((segment) => <option key={segment} value={segment}>{segment}</option>)}
+              </select>
+            </div>
+            <div className="field-row">
+              <label>Policy baseline</label>
+              <input
+                value={wizardData.policy}
+                onChange={(event) => setWizardData((current) => ({ ...current, policy: event.target.value }))}
+              />
+              {wizardErrors.policy && <small className="error-text">{wizardErrors.policy}</small>}
+            </div>
+          </div>
+        )}
+
+        {wizardStep === 3 && (
+          <div className="review-panel">
+            <h4>Configuration summary</h4>
+            <ul>
+              <li><span>Entity</span><strong>{wizardData.entity || '—'}</strong></li>
+              <li><span>Owner</span><strong>{wizardData.owner || '—'}</strong></li>
+              <li><span>Region</span><strong>{wizardData.region}</strong></li>
+              <li><span>Segment</span><strong>{wizardData.segment}</strong></li>
+              <li><span>Policy</span><strong>{wizardData.policy}</strong></li>
+            </ul>
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <Button variant="secondary" onClick={() => setWizardOpen(false)}>Cancel</Button>
+          {wizardStep < 3 ? (
+            <Button onClick={nextStep}>Next</Button>
+          ) : (
+            <Button onClick={handleWizardSubmit}>Create tenant</Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="app-shell">
+      <header className="topbar shell">
+        <div className="brand-wrap">
+          <div className="brand-mark">N</div>
+          <div>
+            <strong>Northstar Control</strong>
+            <small>Enterprise admin</small>
+          </div>
+        </div>
+
+        <nav className="nav-tabs">
+          {['overview', 'records', 'configs', 'dependencies', 'audit'].map((tab) => (
+            <button
+              key={tab}
+              className={activeTab === tab ? 'nav-tab active' : 'nav-tab'}
+              onClick={() => setActiveTab(tab as typeof activeTab)}
+            >
+              {tab}
+            </button>
+          ))}
+        </nav>
+
+        <div className="utility-bar">
+          <button className="icon-button" onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}>
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+          <Button variant="secondary" onClick={() => setWizardOpen(true)}>New tenant</Button>
+        </div>
+      </header>
+
+      <main className="main-layout">
+        <section className="overview-grid">
+          <div className="summaries-row">
+            <Card title="Portfolio health" subtitle="Across all tenants">
+              <div className="stat-blocks">
+                <div>
+                  <small>Monthly spend</small>
+                  <strong>{formatMoney(totalSpend)}</strong>
+                </div>
+                <div>
+                  <small>Users managed</small>
+                  <strong>{formatNumber(activeUsers)}</strong>
+                </div>
+                <div>
+                  <small>Avg uptime</small>
+                  <strong>{avgUptime.toFixed(2)}%</strong>
+                </div>
+                <div>
+                  <small>At risk</small>
+                  <strong>{atRisk}</strong>
+                </div>
+              </div>
+            </Card>
+            <Card title="Operations" subtitle="Recent activity">
+              <div className="summary-list compact">
+                <div><span>Policies synced</span><strong>96.2%</strong></div>
+                <div><span>Review queue</span><strong>18</strong></div>
+                <div><span>Failed tasks</span><strong>03</strong></div>
+                <div><span>New signups</span><strong>127</strong></div>
+              </div>
+            </Card>
+          </div>
+        </section>
+
+        {activeTab === 'overview' && renderDashboard()}
+        {activeTab === 'records' && renderRecords()}
+        {activeTab === 'configs' && renderConfigs()}
+        {activeTab === 'dependencies' && renderDependencies()}
+        {activeTab === 'audit' && renderAudit()}
+
+        <section className="csv-panel shell">
+          <div className="csv-header">
+            <div>
+              <p className="eyebrow">Import preview</p>
+              <h3>CSV validation</h3>
+            </div>
+            <Button variant="secondary" onClick={() => setShowImport((current) => !current)}>{showImport ? 'Hide preview' : 'Show preview'}</Button>
+          </div>
+          {showImport && (
+            <div className="csv-preview">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Company</th>
+                    <th>Domain</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Tier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {csvPreview.map((row, index) => (
+                    <tr key={`${row.company}-${index}`}>
+                      <td>{row.company}</td>
+                      <td>{row.domain}</td>
+                      <td>{row.owner}</td>
+                      <td><Badge tone={row.status === 'Active' ? 'success' : row.status === 'Review' ? 'warning' : 'info'}>{row.status}</Badge></td>
+                      <td>{row.tier}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="issues-panel">
+                <h4>Validation issues</h4>
+                {importIssues.map((issue) => (
+                  <div key={`${issue.row}-${issue.field}`} className="issue-row">
+                    <strong>Row {issue.row}</strong>
+                    <span>{issue.field}</span>
+                    <small>{issue.message}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      </main>
+
+      {wizardOpen && renderWizard()}
+
+      <div className="toast-stack">
+        {toastList.map((toast) => (
+          <div key={toast.id} className={`toast ${toast.kind}`}>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('en-US').format(value);
+}
+
+function SvgLineChart({ data, color }: { data: number[]; color: string }) {
+  const width = 360;
+  const height = 138;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const points = data
+    .map((point, index) => {
+      const x = (index / (data.length - 1)) * width;
+      const y = height - ((point - min) / (max - min || 1)) * (height - 20) - 10;
+      return `${x},${y}`;
+    })
+    .join(' ');
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label="Line chart">
+      <defs>
+        <linearGradient id={`g-${color.replace('#', '')}`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+      <polyline fill="none" stroke={color} strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={points} />
+      <polygon points={`0,${height} ${points} ${width},${height}`} fill={`url(#g-${color.replace('#', '')})`} />
+    </svg>
+  );
+}
+
+function SvgBarChart({ data, color }: { data: number[]; color: string }) {
+  const width = 360;
+  const height = 138;
+  const max = Math.max(...data);
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="chart-svg" aria-label="Bar chart">
+      {data.map((point, index) => {
+        const barWidth = width / data.length - 12;
+        const x = index * (width / data.length) + 6;
+        const y = height - (point / max) * (height - 24) - 10;
+        const barHeight = height - y - 10;
+        return <rect key={`${point}-${index}`} x={x} y={y} width={barWidth} height={barHeight} rx="6" fill={color} opacity="0.8" />;
+      })}
+    </svg>
+  );
+}
+
+export default App;
